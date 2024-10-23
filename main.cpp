@@ -268,21 +268,21 @@ int main()
 {
     std::cout << "MEML Net Test!" << std::endl;
     // Simulated dataset (replace with real data)
-    std::vector<std::vector<double>> X = { {0, 0, 0 }, {-1, 0, 0}, {0, 0, 1}, {-1,-1,1} };  // Example input
-    std::vector<size_t> y = { 1, 0, 1 ,0};  // Example labels
+    std::vector<std::vector<double>> X = { {0, 0}, {1, 4}, {5, 6}, {7,2} };  // Example input
+    std::vector<size_t> y = { 0, 1, 1 ,0};  // Example labels
 
     // Initialize layers
-    Layer_Dense dense1(3, 4);
+    Layer_Dense dense1(2, 64);
     Activation_ReLU activation1;
 
-    Layer_Dense dense2(4, 3);
+    Layer_Dense dense2(64, 3);
     Activation_Softmax_Loss_CategoricalCrossentropy loss_activation;
 
     // Initialize optimizer
     Optimizer_SGD optimizer(0.01, 1e-6, 0.9); // Learning rate, decay, momentum
 
     // Training loop
-    for (size_t epoch = 0; epoch < 500; ++epoch) {
+    for (size_t epoch = 0; epoch < 10001; ++epoch) {
         // Forward pass
         dense1.forward(X);
         activation1.forward(dense1.output);
@@ -303,7 +303,7 @@ int main()
         double accuracy = (double)correct / y.size();
 
         // Print progress every 1000 epochs
-        if (epoch % 50 == 0) {
+        if (epoch % 1000 == 0) {
             std::cout << "Epoch: " << epoch << " Loss: " << loss << " Accuracy: " << accuracy * 100.0 << "%" << std::endl;
         }
 
