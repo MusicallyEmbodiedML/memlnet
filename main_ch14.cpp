@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <tuple>
 #include <limits>
+#include "npy.hpp"
+#include <cassert>
 
 using namespace std;
 
@@ -725,18 +727,41 @@ public:
 };
 
 
-extern vector<vector<double>> X;
-extern vector<vector<double>> y;
-#include "main_ch14_data.inc"
+//extern vector<vector<double>> X;
+//extern vector<vector<double>> y;
+//#include "main_ch14_data.inc"
+
+template<typename T>
+void load_var(T &var, std::string var_path) {
+
+    auto d = npy::read_npy<double>(var_path);
+
+    assert(d.fortran_order == false);
+    
+    if (d.shape.size() == 1) {
+        return;
+    } else {
+        size_t accum = 0;
+        var.reserve(d.shape[0]);
+        for (unsigned int r = 0; r < d.shape[0]; r++) {
+            var[r].reserve(d.shape[1]);
+            for (unsigned int c = 0; c < d.shape[1]; c++) {
+                var[r][c] = d.data[accum++];
+            }
+        }
+    }
+}
 
 
 int main() {
     // Generate spiral data
-    //vector<vector<double>> X;
-    //vector<vector<double>> y;
+    vector<vector<double>> X;
+    vector<vector<double>> y;
     //generate_spiral_data(100, 3, X, y);  // 100 points per class, 3 classes
     //std::vector<std::vector<double>> X { {0, 0}, {1, 4}, {5, 6}, {7,2} };  // Example input
     // std::vector<std::vector<double>>  y { {0}, {1}, {1} ,{0}};  // Example labels
+    load_var(X, "../data/X.npy");
+    load_var(y, "../data/X.npy");
 
     // Create the first Dense layer with 2 inputs and 64 neurons, and L2 regularization
     Layer_Dense dense1(2, 64, 0.000, 5e-4, 0, 5e-4);
