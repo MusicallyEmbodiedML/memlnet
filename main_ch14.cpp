@@ -2,12 +2,21 @@
 #include <vector>
 #include <cmath>
 #include <cstdlib>
+#include <algorithm>
+#include <numeric>
+#include <cstdio>
+#include <tuple>
+#include <limits>
 
 using namespace std;
 
 // Utility function for initializing random numbers
 double rand_double() {
     return (static_cast<double>(rand()) / RAND_MAX) * 2.0 - 1.0;
+}
+
+double rand_double_up() {
+    return (static_cast<double>(rand()) / RAND_MAX) ;
 }
 
 // Utility function to generate spiral data
@@ -26,6 +35,30 @@ void generate_spiral_data(int points_per_class, int num_classes, vector<vector<d
             y.push_back(class_label);
         }
     }
+}
+
+
+std::tuple<double, double, double> analyzeMatrix(const std::vector<std::vector<double>>& matrix) {
+    double sum = 0;
+    double minValue = std::numeric_limits<double>::max();
+    double maxValue = std::numeric_limits<double>::lowest();
+    std::size_t count = 0;
+
+    for (const auto& row : matrix) {
+        for (const auto& value : row) {
+            sum += value;
+            if (value < minValue) {
+                minValue = value;
+            }
+            if (value > maxValue) {
+                maxValue = value;
+            }
+            ++count;
+        }
+    }
+
+    double average = count > 0 ? sum / count : 0.0;
+    return std::make_tuple(average, minValue, maxValue);
 }
 
 
@@ -73,9 +106,11 @@ public:
 
         // Initialize weights with small random values and biases with zero
         weights.resize(n_inputs, vector<double>(n_neurons));
+        double start_val = -0.01;
         for (int i = 0; i < n_inputs; ++i) {
             for (int j = 0; j < n_neurons; ++j) {
-                weights[i][j] = rand_double();
+                weights[i][j] = start_val; //(rand_double_up() * rand_double_up() * rand_double_up()) * 0.02 - 0.01;
+                start_val += 0.00001;
             }
         }
         biases.resize(n_neurons, 0.0);
@@ -108,15 +143,25 @@ public:
         dbiases.resize(weights[0].size());
         dinputs.resize(inputs.size(), vector<double>(inputs[0].size()));
 
+        //std::cout << "DVALUES: {" << std::endl;
         // Calculate dweights and dbiases
         for (size_t i = 0; i < inputs.size(); ++i) {
+            //std::cout << "    { ";
             for (size_t j = 0; j < weights[0].size(); ++j) {
                 dbiases[j] += dvalues[i][j];
                 for (size_t k = 0; k < weights.size(); ++k) {
                     dweights[k][j] += inputs[i][k] * dvalues[i][j];
                 }
+                //std::cout << dvalues[i][j] << ", ";
             }
+            //std::cout << "}," << std::endl;
         }
+        //std::cout << "}" << std::endl;
+        std::cout << "DBIASES: { ";
+        for (size_t i = 0; i < biases.size(); ++i) {
+            std::cout << dbiases[i] << ", ";
+        }
+        std::cout << " }" << std::endl;
 
         // Apply L1 regularization on weights
         if (weight_regularizer_l1 > 0.0) {
@@ -191,47 +236,75 @@ public:
     }
 };
 
-// Mean Squared Error loss function
-class Loss_MeanSquaredError {
+
+class Loss {
 public:
-    // Forward pass (returns loss value)
-    double forward(const vector<vector<double>>& predictions, const vector<vector<double>>& targets) {
-        double loss = 0.0;
-        for (size_t i = 0; i < predictions.size(); ++i) {
-            for (size_t j = 0; j < predictions[0].size(); ++j) {
-                loss += pow(predictions[i][j] - targets[i][j], 2);
-            }
-        }
-        return loss / predictions.size();
-    }
+    // Regularization loss calculation
+    double regularization_loss(const Layer_Dense& layer) {
+        double regularization_loss = 0.0;
 
-    // Backward pass (returns gradient with respect to predictions)
-    vector<vector<double>> backward(const vector<vector<double>>& predictions, const vector<vector<double>>& targets) {
-        vector<vector<double>> dinputs(predictions.size(), vector<double>(predictions[0].size()));
-
-        for (size_t i = 0; i < predictions.size(); ++i) {
-            for (size_t j = 0; j < predictions[0].size(); ++j) {
-                dinputs[i][j] = 2 * (predictions[i][j] - targets[i][j]) / predictions.size();
+        // L1 regularization - weights
+        if (layer.weight_regularizer_l1 > 0) {
+            double l1_weight_loss = 0.0;
+            for (const auto& row : layer.weights) {
+                for (double weight : row) {
+                    l1_weight_loss += std::abs(weight);
+                }
             }
+            regularization_loss += layer.weight_regularizer_l1 * l1_weight_loss;
         }
 
-        return dinputs;
+        // L2 regularization - weights
+        if (layer.weight_regularizer_l2 > 0) {
+            double l2_weight_loss = 0.0;
+            for (const auto& row : layer.weights) {
+                for (double weight : row) {
+                    l2_weight_loss += weight * weight;
+                }
+            }
+            regularization_loss += layer.weight_regularizer_l2 * l2_weight_loss;
+        }
+
+        // L1 regularization - biases
+        if (layer.bias_regularizer_l1 > 0) {
+            double l1_bias_loss = 0.0;
+            for (double bias : layer.biases) {
+                l1_bias_loss += std::abs(bias);
+            }
+            regularization_loss += layer.bias_regularizer_l1 * l1_bias_loss;
+        }
+
+        // L2 regularization - biases
+        if (layer.bias_regularizer_l2 > 0) {
+            double l2_bias_loss = 0.0;
+            for (double bias : layer.biases) {
+                l2_bias_loss += bias * bias;
+            }
+            regularization_loss += layer.bias_regularizer_l2 * l2_bias_loss;
+        }
+
+        return regularization_loss;
     }
+
+    // Calculates the data loss given model output and ground truth values
+    double calculate(const std::vector<std::vector<double>>& output, const std::vector<std::vector<double>>& y) {
+        auto sample_losses = forward(output, y);
+        double data_loss = std::accumulate(sample_losses.begin(), sample_losses.end(), 0.0) / sample_losses.size();
+        return data_loss;
+    }
+
+protected:
+    // Sample forward method, to be overridden
+    virtual std::vector<double> forward(const std::vector<std::vector<double>>& output, const std::vector<std::vector<double>>& y) = 0;
 };
 
-#include <vector>
-#include <cmath>
-#include <algorithm>
-#include <iostream>
 
-using namespace std;
-
-class Loss_CategoricalCrossentropy {
+class Loss_CategoricalCrossentropy : public Loss {
 public:
     vector<vector<double>> dinputs;
 
     // Forward pass
-    double forward(const vector<vector<double>>& y_pred, const vector<vector<double>>& y_true) {
+    vector<double> forward(const vector<vector<double>>& y_pred, const vector<vector<double>>& y_true) {
         size_t samples = y_pred.size();
         vector<double> correct_confidences(samples);
 
@@ -258,11 +331,11 @@ public:
         }
 
         // Calculate losses
-        double loss = 0.0;
+        vector<double> negative_log_likelihoods(samples);
         for (size_t i = 0; i < samples; ++i) {
-            loss += -log(correct_confidences[i]);
+            negative_log_likelihoods[i] = -log(correct_confidences[i]);
         }
-        return loss / samples;
+        return negative_log_likelihoods;
     }
 
     // Backward pass
@@ -301,16 +374,102 @@ public:
     }
 };
 
-#include <vector>
-#include <cmath>
-#include <algorithm>
-#include <iostream>
 
-using namespace std;
+class Activation_Softmax {
+public:
+    // Forward pass
+    void forward(const std::vector<std::vector<double>>& inputs) {
+        // Store inputs
+        this->inputs = inputs;
+        size_t num_samples = inputs.size();
+        size_t num_classes = inputs[0].size();
+        
+        // Resize output vector
+        output.resize(num_samples, std::vector<double>(num_classes));
+
+        // Get unnormalized probabilities
+        std::vector<std::vector<double>> exp_values(num_samples, std::vector<double>(num_classes));
+        for (size_t i = 0; i < num_samples; ++i) {
+            double max_input = *std::max_element(inputs[i].begin(), inputs[i].end());
+            for (size_t j = 0; j < num_classes; ++j) {
+                exp_values[i][j] = std::exp(inputs[i][j] - max_input);
+            }
+        }
+
+        // Normalize to get probabilities
+        for (size_t i = 0; i < num_samples; ++i) {
+            double sum_exp = std::accumulate(exp_values[i].begin(), exp_values[i].end(), 0.0);
+            for (size_t j = 0; j < num_classes; ++j) {
+                output[i][j] = exp_values[i][j] / sum_exp;
+            }
+        }
+    }
+
+    // Backward pass
+    void backward(const std::vector<std::vector<double>>& dvalues) {
+        size_t num_samples = output.size();
+        size_t num_classes = output[0].size();
+        
+        // Initialize gradient array
+        dinputs.resize(num_samples, std::vector<double>(num_classes, 0.0));
+
+        for (size_t i = 0; i < num_samples; ++i) {
+            // Flatten output array
+            std::vector<double> single_output = output[i];
+
+            // Calculate Jacobian matrix of the output
+            for (size_t j = 0; j < num_classes; ++j) {
+                double diag = single_output[j];
+                for (size_t k = 0; k < num_classes; ++k) {
+                    if (j == k) {
+                        dinputs[i][j] += diag * (1 - diag) * dvalues[i][k]; // Diagonal elements
+                    } else {
+                        dinputs[i][j] -= diag * single_output[k] * dvalues[i][k]; // Off-diagonal elements
+                    }
+                }
+            }
+        }
+    }
+
+    // Get the output
+    const std::vector<std::vector<double>>& getOutput() const {
+        return output;
+    }
+
+private:
+    std::vector<std::vector<double>> inputs;
+    std::vector<std::vector<double>> output;
+    std::vector<std::vector<double>> dinputs;
+};
+
+
+
+
+
 
 class Activation_Softmax_Loss_CategoricalCrossentropy {
 public:
     vector<vector<double>> dinputs;
+    Activation_Softmax *activation_ptr;
+    Loss_CategoricalCrossentropy *loss_ptr;
+    std::vector<std::vector<double>> output;
+
+    Activation_Softmax_Loss_CategoricalCrossentropy(
+        Activation_Softmax *activation,
+        Loss_CategoricalCrossentropy *loss
+    ) : activation_ptr(activation),
+        loss_ptr(loss)
+    {}
+
+    // Forward pass
+    double forward(const vector<vector<double>>& inputs,
+                                   const vector<vector<double>>& y_true) {
+        
+        //
+        activation_ptr->forward(inputs);
+        output = activation_ptr->getOutput();
+        return loss_ptr->calculate(output, y_true);
+    }
 
     // Backward pass
     vector<vector<double>> backward(const vector<vector<double>>& dvalues, const vector<vector<double>>& y_true) {
@@ -349,12 +508,6 @@ public:
     }
 };
 
-#include <vector>
-#include <cmath>
-#include <iostream>
-#include <algorithm>
-
-using namespace std;
 
 class Optimizer_RMSprop {
 public:
@@ -496,25 +649,73 @@ public:
             }
         }
 
+        std::cout << "dBIAS: { ";
         for (size_t i = 0; i < layer.biases.size(); ++i) {
             layer.bias_momentums[i] = beta_1 * layer.bias_momentums[i] + (1 - beta_1) * layer.dbiases[i];
             layer.bias_caches[i] = beta_2 * layer.bias_caches[i] + (1 - beta_2) * std::pow(layer.dbiases[i], 2);
+            std::cout << layer.dbiases[i] << ", ";
         }
+        std::cout << " }" << std::endl;
 
         // Get corrected momentums and caches
+        double momentum_sum = 0;
+        double momentum_minValue = std::numeric_limits<double>::max();
+        double momentum_maxValue = std::numeric_limits<double>::lowest();
+        double cache_sum = 0;
+        double cache_minValue = std::numeric_limits<double>::max();
+        double cache_maxValue = std::numeric_limits<double>::lowest();
+        std::size_t count = 0;
+
+        std::cout << "WEIGHT CHANGE: {" << std::endl;
         for (size_t i = 0; i < layer.weights.size(); ++i) {
+            std::cout <<  "    { ";
             for (size_t j = 0; j < layer.weights[i].size(); ++j) {
                 double weight_momentum_corrected = layer.weight_momentums[i][j] / (1 - std::pow(beta_1, iterations + 1));
                 double weight_cache_corrected = layer.weight_caches[i][j] / (1 - std::pow(beta_2, iterations + 1));
-                layer.weights[i][j] += -current_learning_rate * weight_momentum_corrected / (std::sqrt(weight_cache_corrected) + epsilon);
-            }
-        }
+                double weight_change = -current_learning_rate * weight_momentum_corrected / (std::sqrt(weight_cache_corrected) + epsilon);
+                layer.weights[i][j] += weight_change;
+                std::cout << weight_change << ", ";
 
+                // Calculate vector stats
+                momentum_sum += weight_momentum_corrected;
+                if (weight_momentum_corrected < momentum_minValue) {
+                    momentum_minValue = weight_momentum_corrected;
+                }
+                if (weight_momentum_corrected > momentum_maxValue) {
+                    momentum_maxValue = weight_momentum_corrected;
+                }
+                cache_sum += weight_cache_corrected;
+                if (weight_cache_corrected < cache_minValue) {
+                    cache_minValue = weight_cache_corrected;
+                }
+                if (weight_cache_corrected > cache_maxValue) {
+                    cache_maxValue = weight_cache_corrected;
+                }
+                ++count;
+            }
+            std::cout << "}," << std::endl; 
+        }
+        std::cout << "}" << std::endl;
+        double momentum_average = (count > 0) ? momentum_sum / count : 0;
+        double cache_average = (count > 0) ? cache_sum / count : 0;
+
+        // std::cout << "MOMENTUM" << std::endl;
+        // std::cout << "  --Average: " << momentum_average << std::endl;
+        // std::cout << "  --Min: " << momentum_minValue << std::endl;
+        // std::cout << "  --Max: " << momentum_maxValue << std::endl;
+        // std::cout << "CACHE" << std::endl;
+        // std::cout << "  --Average: " << cache_average << std::endl;
+        // std::cout << "  --Min: " << cache_minValue << std::endl;
+
+        std::cout << "BIAS CHANGE: { ";
         for (size_t i = 0; i < layer.biases.size(); ++i) {
             double bias_momentum_corrected = layer.bias_momentums[i] / (1 - std::pow(beta_1, iterations + 1));
             double bias_cache_corrected = layer.bias_caches[i] / (1 - std::pow(beta_2, iterations + 1));
-            layer.biases[i] += -current_learning_rate * bias_momentum_corrected / (std::sqrt(bias_cache_corrected) + epsilon);
+            double bias_change = -current_learning_rate * bias_momentum_corrected / (std::sqrt(bias_cache_corrected) + epsilon);
+            layer.biases[i] += bias_change;
+            std::cout << bias_change << ", ";
         }
+        std::cout << "}" << std::endl;
     }
 
     // Call once after any parameter updates
@@ -523,70 +724,99 @@ public:
     }
 };
 
-  int main() {
-      // Generate spiral data
-      vector<vector<double>> X;
-      vector<vector<double>> y;
-      generate_spiral_data(100, 3, X, y);  // 100 points per class, 3 classes
-      // std::vector<std::vector<double>> X { {0, 0}, {1, 4}, {5, 6}, {7,2} };  // Example input
-      // std::vector<std::vector<double>>  y { {0}, {1}, {1} ,{0}};  // Example labels
 
-      // Create the first Dense layer with 2 inputs and 64 neurons, and L2 regularization
-      Layer_Dense dense1(2, 64, 0.000, 5e-4, 0, 5e-4);
-
-      // Create ReLU activation for first layer
-      Activation_ReLU relu1;
-
-      // Create the second Dense layer with 64 inputs and 3 neurons (3 output classes), and L2 regularization
-
-      Layer_Dense dense2(64, 3);
-
-      // Create Adam optimizer
-      // Optimizer_Adam adam_optimizer(0.02, 5e-7);
-
-      Optimizer_RMSprop rms_opt;
-
-      // Mean Squared Error loss
-      Loss_MeanSquaredError loss_function;
-
-      // Training for 1000 epochs
-      for (int epoch = 0; epoch < 50000; ++epoch) {
-          // Forward pass through first dense layer
-          dense1.forward(X);
-
-          // Forward pass through ReLU activation for first layer
-          relu1.forward(dense1.output);
-
-          // Forward pass through second dense layer
-          dense2.forward(relu1.output);
+extern vector<vector<double>> X;
+extern vector<vector<double>> y;
+#include "main_ch14_data.inc"
 
 
-          // Calculate loss
-          double loss = loss_function.forward(dense2.output, y);
+int main() {
+    // Generate spiral data
+    //vector<vector<double>> X;
+    //vector<vector<double>> y;
+    //generate_spiral_data(100, 3, X, y);  // 100 points per class, 3 classes
+    //std::vector<std::vector<double>> X { {0, 0}, {1, 4}, {5, 6}, {7,2} };  // Example input
+    // std::vector<std::vector<double>>  y { {0}, {1}, {1} ,{0}};  // Example labels
 
-          // Backward pass through loss function
-          vector<vector<double>> dloss = loss_function.backward(dense2.output, y);
+    // Create the first Dense layer with 2 inputs and 64 neurons, and L2 regularization
+    Layer_Dense dense1(2, 64, 0.000, 5e-4, 0, 5e-4);
 
-          // Backward pass through second Dense layer
-          dense2.backward(dloss);
-          relu1.backward(dense2.dinputs, dense1.output);
-          dense1.backward(relu1.dinputs);
+    // Create ReLU activation for first layer
+    Activation_ReLU relu1;
+
+    // Create the second Dense layer with 64 inputs and 3 neurons (3 output classes), and L2 regularization
+
+    Layer_Dense dense2(64, 3);
+
+    // Create Adam optimizer
+    Optimizer_Adam adam_optimizer(0.02, 5e-7);
+
+    //Optimizer_RMSprop rms_opt;
+
+    // Create Softmax classifier's combined loss and activation
+    Loss_CategoricalCrossentropy loss;
+    Activation_Softmax activation;
+    Activation_Softmax_Loss_CategoricalCrossentropy loss_activation(&activation, &loss);
+
+    // Training for 1000 epochs
+    for (int epoch = 0; epoch < 200; ++epoch) {
+        // Forward pass through first dense layer
+        dense1.forward(X);
+
+        // Forward pass through ReLU activation for first layer
+        relu1.forward(dense1.output);
+
+        // Forward pass through second dense layer
+        dense2.forward(relu1.output);
 
 
-          // Update parameters using Adam optimizer for both layers
-          // adam_optimizer.pre_update_params();
-          // adam_optimizer.update_params(dense1);
-          // adam_optimizer.update_params(dense2);
-          // adam_optimizer.update_params(dense3);
-          // adam_optimizer.post_update_params();
-          rms_opt.update_params(dense1);
-          rms_opt.update_params(dense2);
+        // Calculate loss
+        double data_loss = loss_activation.forward(dense2.output, y);
 
-          // Print loss every 100 epochs
-          if (epoch % 10 == 0) {
-              cout << "Epoch: " << epoch << " Loss: " << loss << endl;
-          }
-      }
+        // Calculate regularization penalty
+        double regularization_loss = loss_activation.loss_ptr->regularization_loss(dense1) +
+            loss_activation.loss_ptr->regularization_loss(dense2);
 
-     return 0;
- }
+        double loss = data_loss + regularization_loss;
+
+        // Backward pass through loss function
+        vector<vector<double>> dloss = loss_activation.backward(loss_activation.output, y);
+        cout << "DLOSS: {" << endl;
+        for (unsigned int i = 0; i < dloss.size(); i++) {
+            cout << "    { ";
+            for (unsigned int j = 0; j < dloss[i].size(); j++) {
+                cout << dloss[i][j] << ", ";
+            }
+            cout << "}," << endl;
+        }
+
+        // Backward pass through second Dense layer
+        dense2.backward(loss_activation.dinputs);
+        relu1.backward(dense2.dinputs, dense1.output);
+        dense1.backward(relu1.dinputs);
+
+
+        // Update parameters using Adam optimizer for both layers
+        adam_optimizer.pre_update_params();
+        adam_optimizer.update_params(dense1);
+        adam_optimizer.update_params(dense2);
+        adam_optimizer.post_update_params();
+        //rms_opt.update_params(dense1);
+        //rms_opt.update_params(dense2);
+        
+
+        // Print loss every 100 epochs
+        if (epoch % 1 == 0) {
+            printf("epoch: %d, loss: %f (data_loss: %f, reg_loss: %f), lr: %f\n",
+                epoch,
+                loss,
+                data_loss,
+                regularization_loss,
+                adam_optimizer.current_learning_rate
+                //rms_opt.current_learning_rate
+            );
+        }
+    }
+
+    return 0;
+}
