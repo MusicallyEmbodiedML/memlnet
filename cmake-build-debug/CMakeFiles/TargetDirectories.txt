@@ -1,3 +1,0 @@
-/home/ck84/src/meml/memlnet/cmake-build-debug/CMakeFiles/memlnet.dir
-/home/ck84/src/meml/memlnet/cmake-build-debug/CMakeFiles/edit_cache.dir
-/home/ck84/src/meml/memlnet/cmake-build-debug/CMakeFiles/rebuild_cache.dir
